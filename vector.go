@@ -2,7 +2,6 @@ package vector
 
 import (
 	"bytes"
-	"log"
 
 	"github.com/FoundationDB/fdb-go/fdb"
 	"github.com/FoundationDB/fdb-go/fdb/directory"
@@ -18,8 +17,15 @@ func (vect *Vector) Set(index int64, val string, tr fdb.Transaction) {
 	tr.Set(vect.keyAt(index), vect.valpack(val))
 }
 
-func (vect *Vector) Push(val string, tr fdb.Transaction) {
-	tr.Set(vect.keyAt(vect.size(tr)), vect.valpack(val))
+func (vect *Vector) Push(val string, tr fdb.Transaction) error {
+	size = vect.Size(tr)
+	if err != nil {
+		return error
+	}
+
+	tr.Set(vect.keyAt(size), vect.valpack(val))
+
+	return nil
 }
 
 func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
@@ -68,12 +74,14 @@ func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
  */
 // size get number of keys
 // b<locking
-func (vect *Vector) size(tr fdb.Transaction) int64 {
+func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
 
 	begin, end := vect.subspace.FDBRangeKeys()
 
-	// MustGet is a blocking and more panicky version of key.Get()
-	lastkey := tr.GetKey(fdb.LastLessOrEqual(end)).MustGet()
+	lastkey, err := tr.GetKey(fdb.LastLessOrEqual(end)).Get()
+	if err != nil {
+		return 0, err
+	}
 
 	if bytes.Compare(lastkey, begin.FDBKey()) == -1 {
 		return 0
@@ -81,10 +89,10 @@ func (vect *Vector) size(tr fdb.Transaction) int64 {
 
 	index, err := vect.key2index(lastkey)
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
 
-	return index + 1
+	return index + 1, nil
 }
 
 func (vect *Vector) keyAt(index int64) fdb.Key {
