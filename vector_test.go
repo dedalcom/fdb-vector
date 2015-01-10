@@ -2,15 +2,20 @@ package vector
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/FoundationDB/fdb-go/fdb"
 	"github.com/FoundationDB/fdb-go/fdb/directory"
 )
 
+func TestMain(m *testing.M) {
+	fdb.MustAPIVersion(200)
+	os.Exit(m.Run())
+}
+
 func TestClear(t *testing.T) {
 
-	fdb.MustAPIVersion(200)
 	db := fdb.MustOpenDefault()
 
 	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
@@ -56,7 +61,6 @@ func TestClear(t *testing.T) {
 
 func TestSize(t *testing.T) {
 
-	fdb.MustAPIVersion(200)
 	db := fdb.MustOpenDefault()
 
 	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
@@ -99,7 +103,6 @@ func TestSize(t *testing.T) {
 
 func TestPushPop(t *testing.T) {
 
-	fdb.MustAPIVersion(200)
 	db := fdb.MustOpenDefault()
 
 	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
