@@ -75,19 +75,19 @@ func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
 /*
  * Private Methods
  */
-// size get number of keys
-// b<locking
+
+// size get number of keys --- blocking
 func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
 
 	begin, end := vect.subspace.FDBRangeKeys()
 
+	// .GET is a blocking operation
 	lastkey, err := tr.GetKey(fdb.LastLessOrEqual(end)).Get()
 	if err != nil {
 		return 0, err
 	}
-
 	if bytes.Compare(lastkey, begin.FDBKey()) == -1 {
-		return 0
+		return 0, nil
 	}
 
 	index, err := vect.key2index(lastkey)
