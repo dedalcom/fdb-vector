@@ -18,9 +18,9 @@ func (vect *Vector) Set(index int64, val string, tr fdb.Transaction) {
 }
 
 func (vect *Vector) Push(val string, tr fdb.Transaction) error {
-	size = vect.Size(tr)
+	size, err := vect.Size(tr)
 	if err != nil {
-		return error
+		return err
 	}
 
 	tr.Set(vect.keyAt(size), vect.valpack(val))
