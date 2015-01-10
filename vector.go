@@ -13,10 +13,38 @@ type Vector struct {
 	defaultValue string
 }
 
+/*****************************************************************************
+ * Public Methods
+ ****************************************************************************/
+
+// Get the number of items in the Vector. This number includes the sparsely represented items.
+func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
+
+	begin, end := vect.subspace.FDBRangeKeys()
+
+	// .GET is a blocking operation
+	lastkey, err := tr.GetKey(fdb.LastLessOrEqual(end)).Get()
+	if err != nil {
+		return 0, err
+	}
+	if bytes.Compare(lastkey, begin.FDBKey()) == -1 {
+		return 0, nil
+	}
+
+	index, err := vect.indexAt(lastkey)
+	if err != nil {
+		return 0, err
+	}
+
+	return index + 1, nil
+}
+
+// Set the value at a particular index in the Vector.
 func (vect *Vector) Set(index int64, val string, tr fdb.Transaction) {
 	tr.Set(vect.keyAt(index), vect.valpack(val))
 }
 
+// Push a single item onto the end of the Vector.
 func (vect *Vector) Push(val string, tr fdb.Transaction) error {
 	size, err := vect.Size(tr)
 	if err != nil {
@@ -28,6 +56,7 @@ func (vect *Vector) Push(val string, tr fdb.Transaction) error {
 	return nil
 }
 
+// Get and pops the last item off the Vector.
 func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
 
 	// Read the last two entries so we can check if the second to last item
@@ -44,7 +73,7 @@ func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
 
 	indices := make([]int64, 2)
 	for i := 0; i < len(lastTwo); i++ {
-		index, err := vect.key2index(lastTwo[i].Key)
+		index, err := vect.indexAt(lastTwo[i].Key)
 		if err != nil {
 			return vect.defaultValue, err
 		}
@@ -72,38 +101,23 @@ func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
 	return valslice[0].(string), nil
 }
 
-/*
- * Private Methods
- */
-
-// size get number of keys --- blocking
-func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
-
-	begin, end := vect.subspace.FDBRangeKeys()
-
-	// .GET is a blocking operation
-	lastkey, err := tr.GetKey(fdb.LastLessOrEqual(end)).Get()
-	if err != nil {
-		return 0, err
-	}
-	if bytes.Compare(lastkey, begin.FDBKey()) == -1 {
-		return 0, nil
-	}
-
-	index, err := vect.key2index(lastkey)
-	if err != nil {
-		return 0, err
-	}
-
-	return index + 1, nil
+// Remove all items from the Vector.
+func (vect *Vector) Clear(tr fdb.Transaction) {
+	tr.ClearRange(vect.subspace)
 }
 
+/*****************************************************************************
+ * Private Methods
+ ****************************************************************************/
+
+// Get the subspace key for a given index
 func (vect *Vector) keyAt(index int64) fdb.Key {
 	tup := tuple.Tuple{index}
 	return vect.subspace.Pack(tup)
 }
 
-func (vect *Vector) key2index(key fdb.Key) (int64, error) {
+// Get the index for given key in subspace
+func (vect *Vector) indexAt(key fdb.Key) (int64, error) {
 	islice, err := vect.subspace.Unpack(key)
 	if err != nil {
 		return 0, err
@@ -111,10 +125,7 @@ func (vect *Vector) key2index(key fdb.Key) (int64, error) {
 	return islice[0].(int64), nil
 }
 
-func (vect *Vector) clear(tr fdb.Transaction) {
-	tr.ClearRange(vect.subspace)
-}
-
+// Pack values into a byte encoded tuple
 func (vect *Vector) valpack(val string) []byte {
 	t := tuple.Tuple{val}
 	return t.Pack()
