@@ -160,3 +160,99 @@ func TestPushPop(t *testing.T) {
 	}
 
 }
+
+func TestSparsity(t *testing.T) {
+
+	db := fdb.MustOpenDefault()
+
+	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
+	if err != nil {
+		panic(err)
+	}
+
+	_, e := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+
+		vector := Vector{subspace: subspace}
+		vector.Clear(tr)
+
+		vector.Set(3, "a", tr)
+		i, err := vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
+		if i != 4 {
+			return nil, fmt.Errorf("Expected vector to be size 4, got %d instead", i)
+		}
+
+		v, err := vector.Pop(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Pop returned an error")
+		}
+		if v != "a" {
+			return nil, fmt.Errorf("Expected popped value to be size 'a', got %d instead", v)
+		}
+
+		i, err = vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
+		if i != 3 {
+			return nil, fmt.Errorf("Expected vector to be size 3, got %d instead", i)
+		}
+
+		v, err = vector.Pop(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Pop returned an error")
+		}
+		if v != vector.defaultValue {
+			return nil, fmt.Errorf("Expected popped value to be size %s, got %d instead", vector.defaultValue, v)
+		}
+
+		i, err = vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
+		if i != 2 {
+			return nil, fmt.Errorf("Expected vector to be size 2, got %d instead", i)
+		}
+
+		return nil, nil
+
+	})
+
+	if e != nil {
+		t.Error(e)
+	}
+}
+
+func TestKeyAtIndexAt(t *testing.T) {
+
+	db := fdb.MustOpenDefault()
+
+	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
+	if err != nil {
+		panic(err)
+	}
+
+	_, e := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+
+		vector := Vector{subspace: subspace}
+		vector.Clear(tr)
+
+		key := vector.keyAt(3)
+		i, err := vector.indexAt(key)
+		if err != nil {
+			return nil, fmt.Errorf("indexAt returned error: %s", err)
+		}
+		if i != 3 {
+			return nil, fmt.Errorf("Expected key index to be 3, got %d instead", i)
+		}
+
+		return nil, nil
+
+	})
+
+	if e != nil {
+		t.Error(e)
+	}
+}
