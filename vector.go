@@ -37,7 +37,10 @@ func (vect *Vector) Pop(tr fdb.Transaction) (string, error) {
 		Limit:   2,
 		Reverse: true,
 	}
-	lastTwo := tr.GetRange(vect.subspace, ropts).GetSliceOrPanic()
+	lastTwo, err := tr.GetRange(vect.subspace, ropts).GetSliceWithError()
+	if err != nil {
+		return vect.defaultValue, err
+	}
 
 	indices := make([]int64, 2)
 	for i := 0; i < len(lastTwo); i++ {
