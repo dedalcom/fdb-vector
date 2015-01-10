@@ -33,7 +33,7 @@ func TestClear(t *testing.T) {
 			return nil, fmt.Errorf("Size returned error: %s", err)
 		}
 
-		vector.clear(tr)
+		vector.Clear(tr)
 
 		i, err = vector.Size(tr)
 		if err != nil {
@@ -67,7 +67,7 @@ func TestSize(t *testing.T) {
 	_, e := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
 
 		vector := Vector{subspace: subspace}
-		vector.clear(tr)
+		vector.Clear(tr)
 
 		i, err := vector.Size(tr)
 		if err != nil {
@@ -110,7 +110,7 @@ func TestPushPop(t *testing.T) {
 	_, e := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
 
 		vector := Vector{subspace: subspace}
-		vector.clear(tr)
+		vector.Clear(tr)
 
 		err := vector.Push("a", tr)
 		if err != nil {
