@@ -25,14 +25,21 @@ func TestClear(t *testing.T) {
 		vector.Set(0, "a", tr)
 		vector.Set(1, "b", tr)
 
-		i := vector.size(tr)
+		i, err := vector.Size(tr)
 		if i != 2 {
 			return nil, fmt.Errorf("Expected vector to be size 1, got %d instead", i)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
 		}
 
 		vector.clear(tr)
 
-		i = vector.size(tr)
+		i, err = vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
+
 		if i != 0 {
 			return nil, fmt.Errorf("Expected empty vector to be size 0, got %d instead", i)
 		}
@@ -62,14 +69,20 @@ func TestSize(t *testing.T) {
 		vector := Vector{subspace: subspace}
 		vector.clear(tr)
 
-		i := vector.size(tr)
+		i, err := vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
 		if i != 0 {
 			return nil, fmt.Errorf("Expected empty vector to be size 0, got %d instead", i)
 		}
 
 		vector.Set(0, "a", tr)
 
-		i = vector.size(tr)
+		i, err = vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
 		if i != 1 {
 			return nil, fmt.Errorf("Expected vector to be size 1, got %d instead", i)
 		}
@@ -99,8 +112,15 @@ func TestPushPop(t *testing.T) {
 		vector := Vector{subspace: subspace}
 		vector.clear(tr)
 
-		vector.Push("a", tr)
-		vector.Push("b", tr)
+		err := vector.Push("a", tr)
+		if err != nil {
+			return nil, fmt.Errorf("Push returned error: %s", err)
+		}
+
+		err = vector.Push("b", tr)
+		if err != nil {
+			return nil, fmt.Errorf("Push returned error: %s", err)
+		}
 
 		v, err := vector.Pop(tr)
 		if err != nil {
@@ -118,7 +138,10 @@ func TestPushPop(t *testing.T) {
 			return nil, fmt.Errorf("Expected popped value to be 'a', got %s instead", v)
 		}
 
-		i := vector.size(tr)
+		i, err := vector.Size(tr)
+		if err != nil {
+			return nil, fmt.Errorf("Size returned error: %s", err)
+		}
 		if i != 0 {
 			return nil, fmt.Errorf("Expected empty vector to be size 0, got %d instead", i)
 		}
