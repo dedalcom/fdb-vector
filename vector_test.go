@@ -27,6 +27,8 @@ func TestClear(t *testing.T) {
 
 		vector := Vector{subspace: subspace}
 
+		vector.Clear(tr)
+
 		vector.Set(0, "a", tr)
 		vector.Set(1, "b", tr)
 
