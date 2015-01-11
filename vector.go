@@ -2,8 +2,8 @@ package vector
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/FoundationDB/fdb-go/fdb"
 	"github.com/FoundationDB/fdb-go/fdb/directory"
@@ -30,18 +30,12 @@ type Vector struct {
 }
 
 /*
- * Value is the return value from unpacking an element of a Vector.
- * As type information is serialized along with a value during packing
- * this information is available when the value is unserialized during unpacking.
- * It is stored inside a Value type with helper is[type] bool fields.
+ * VectRange - A structure for holding vector range parameters
  */
-type Value struct {
-	IsFloat  bool
-	IsInt    bool
-	IsString bool
-	Float    float64
-	Int      int64
-	String   string
+type VectRange struct {
+	Start int64
+	Stop  int64
+	Step  int64
 }
 
 /*****************************************************************************
@@ -73,7 +67,7 @@ func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
 
 // Set the value at a particular index in the Vector.
 func (vect *Vector) Set(index int64, val interface{}, tr fdb.Transaction) error {
-	v, err := vect.valPack(val)
+	v, err := ValPack(val)
 	if err != nil {
 		return err
 	}
@@ -107,7 +101,7 @@ func (vect *Vector) Get(index int64, tr fdb.Transaction) (*Value, error) {
 	}
 	// if this is a direct hit we return the value at the key index.
 	if bytes.Compare(start, justOne[0].Key) == 0 {
-		v, err := vect.valUnpack(justOne[0].Value)
+		v, err := ValUnpack(justOne[0].Value)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +118,7 @@ func (vect *Vector) Push(val interface{}, tr fdb.Transaction) error {
 		return err
 	}
 
-	v, err := vect.valPack(val)
+	v, err := ValPack(val)
 	if err != nil {
 		return err
 	}
@@ -166,7 +160,7 @@ func (vect *Vector) Pop(tr fdb.Transaction) (*Value, error) {
 		// pass
 	} else if len(lastTwo) == 1 || indices[0] > indices[1]+1 {
 		// Second to last item is being represented sparsely
-		v, err := vect.valPack(vect.defaultValue) //
+		v, err := ValPack(vect.defaultValue) //
 		if err != nil {
 			return nil, err
 		}
@@ -175,7 +169,7 @@ func (vect *Vector) Pop(tr fdb.Transaction) (*Value, error) {
 
 	tr.Clear(lastTwo[0].Key)
 
-	val, err := vect.valUnpack(lastTwo[0].Value)
+	val, err := ValUnpack(lastTwo[0].Value)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +192,7 @@ func (vect *Vector) Back(tr fdb.Transaction) (*Value, error) {
 		return &Value{}, nil
 	}
 
-	val, err := vect.valUnpack(last[0].Value)
+	val, err := ValUnpack(last[0].Value)
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +201,54 @@ func (vect *Vector) Back(tr fdb.Transaction) (*Value, error) {
 }
 
 // Get the value of the first item in the Vector.
-// func (vect *Vector) Front(tr fdb.Transaction) (Value, error) {
-// }
+func (vect *Vector) Front(tr fdb.Transaction) (*Value, error) {
+	return vect.Get(0, tr)
+}
+
+// Get a range of items in the Vector, returned as a generator.
+// To get the range to the last value, set endIdx as -1.
+// Empty VectRange (or setting all values to 0) will return the
+// full range.
+func (vect *Vector) GetRange(vro VectRange, tr fdb.Transaction) (*Vectorator, error) {
+	size, err := vect.Size(tr)
+	if err != nil {
+		return nil, err
+	}
+
+	if vro.Stop == 0 {
+		vro.Stop = size
+	} else if vro.Stop < 0 {
+		vro.Stop = int64(math.Max(0.0, float64(size+vro.Stop)))
+	}
+
+	if vro.Start < 0 {
+		vro.Start = int64(math.Max(0.0, float64(size+vro.Start)))
+	}
+
+	if vro.Step == 0 {
+		// step has not been set
+		if vro.Start <= vro.Stop {
+			vro.Step = 1
+		} else {
+			vro.Step = -1
+		}
+	}
+
+	kr := fdb.KeyRange{}
+
+	if vro.Step > 0 {
+		kr.Begin = vect.keyAt(vro.Start)
+		kr.End = vect.keyAt(vro.Stop)
+	} else {
+		kr.End = vect.keyAt(vro.Start + 1)
+		kr.Begin = vect.keyAt(vro.Stop + 1)
+	}
+
+	rr := tr.GetRange(kr, fdb.RangeOptions{Reverse: vro.Step < 0})
+
+	return &Vectorator{rr.Iterator(), vect}, nil
+
+}
 
 // Remove all items from the Vector.
 func (vect *Vector) Clear(tr fdb.Transaction) {
@@ -232,64 +272,4 @@ func (vect *Vector) indexAt(key fdb.Key) (int64, error) {
 		return 0, err
 	}
 	return islice[0].(int64), nil
-}
-
-// Pack Value supported values into a Value byte array
-func (vect *Vector) valPack(val interface{}) ([]byte, error) {
-
-	buf := new(bytes.Buffer)
-
-	var err error
-
-	switch v := val.(type) {
-	case int64:
-		buf.WriteByte(0x01)
-		err = binary.Write(buf, binary.BigEndian, v)
-	case int:
-		buf.WriteByte(0x01)
-		err = binary.Write(buf, binary.BigEndian, int64(v))
-	case float64:
-		buf.WriteByte(0x02)
-		err = binary.Write(buf, binary.BigEndian, v)
-	case float32:
-		buf.WriteByte(0x02)
-		err = binary.Write(buf, binary.BigEndian, float64(v))
-	case string:
-		buf.WriteByte(0x03)
-		_, err = buf.WriteString(v)
-	default:
-		err = fmt.Errorf("fdb-vector unencodable element (%v, type %T)", v, v)
-	}
-
-	return buf.Bytes(), err
-}
-
-// Unpack values into a Value structure
-func (vect *Vector) valUnpack(b []byte) (*Value, error) {
-
-	v := &Value{}
-
-	if len(b) == 0 {
-		return v, fmt.Errorf("No Byte array to Decode")
-	}
-
-	var err error
-	code := b[0]
-	buf := bytes.NewBuffer(b[1:])
-
-	switch {
-	case code == 0x01:
-		v.IsInt = true
-		err = binary.Read(buf, binary.BigEndian, &v.Int)
-	case code == 0x02:
-		v.IsFloat = true
-		err = binary.Read(buf, binary.BigEndian, &v.Float)
-	case code == 0x03:
-		v.IsString = true
-		v.String = string(b[1:])
-	default:
-		err = fmt.Errorf("unable to decode tuple element with unknown typecode %02x", code)
-	}
-
-	return v, err
 }
