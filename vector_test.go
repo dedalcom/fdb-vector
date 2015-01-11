@@ -131,7 +131,7 @@ func TestPushPop(t *testing.T) {
 		if err != nil {
 			return nil, fmt.Errorf("Pop returned an error")
 		}
-		if v != "b" {
+		if v.String != "b" {
 			return nil, fmt.Errorf("Expected popped value to be 'b', got %s instead", v)
 		}
 
@@ -139,7 +139,7 @@ func TestPushPop(t *testing.T) {
 		if err != nil {
 			return nil, fmt.Errorf("Pop returned an error")
 		}
-		if v != "a" {
+		if v.String != "a" {
 			return nil, fmt.Errorf("Expected popped value to be 'a', got %s instead", v)
 		}
 
@@ -188,7 +188,7 @@ func TestSparsity(t *testing.T) {
 		if err != nil {
 			return nil, fmt.Errorf("Pop returned an error")
 		}
-		if v != "a" {
+		if v.String != "a" {
 			return nil, fmt.Errorf("Expected popped value to be size 'a', got %d instead", v)
 		}
 
@@ -204,7 +204,7 @@ func TestSparsity(t *testing.T) {
 		if err != nil {
 			return nil, fmt.Errorf("Pop returned an error")
 		}
-		if v != vector.defaultValue {
+		if v.String != vector.defaultValue {
 			return nil, fmt.Errorf("Expected popped value to be size %s, got %d instead", vector.defaultValue, v)
 		}
 
@@ -228,7 +228,6 @@ func TestSparsity(t *testing.T) {
 func TestKeyAtIndexAt(t *testing.T) {
 
 	db := fdb.MustOpenDefault()
-
 	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
 	if err != nil {
 		panic(err)
@@ -254,5 +253,58 @@ func TestKeyAtIndexAt(t *testing.T) {
 
 	if e != nil {
 		t.Error(e)
+	}
+}
+
+func TestPackUnpack(t *testing.T) {
+
+	db := fdb.MustOpenDefault()
+	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
+
+	if err != nil {
+		panic(err)
+	}
+
+	vector := Vector{subspace: subspace}
+
+	b, err := vector.valPack("")
+	if err != nil {
+		t.Error("valPack fails packing empty string")
+	}
+	v, err := vector.valUnpack(b)
+	if err != nil {
+		t.Error("valPack fails unpacking", err)
+	}
+	if !v.IsString || v.String != "" {
+		t.Error("valPack fails unpacking empty string. Instead got", v.String)
+	}
+
+	b, err = vector.valPack("☢ € → ☎ ❄mung")
+	if err != nil {
+		t.Error("valPack fails packing string '☢ € → ☎ ❄mung'")
+	}
+	v, err = vector.valUnpack(b)
+	if err != nil {
+		t.Error("valPack fails unpacking", err)
+	}
+	if !v.IsString || v.String != "☢ € → ☎ ❄mung" {
+		t.Error("valPack fails unpacking string '☢ € → ☎ ❄mung'. Instead got", v.String)
+	}
+
+	b, err = vector.valPack(3.25)
+	if err != nil {
+		t.Error("valPack fails packing 3.25")
+	}
+	v, err = vector.valUnpack(b)
+	if err != nil {
+		t.Error("valPack fails unpacking", err)
+	}
+	if !v.IsFloat || v.Float != 3.25 {
+		t.Error("valPack fails unpacking 3.25. Instead got", v.Float)
+	}
+
+	b, err = vector.valPack(vector)
+	if err == nil {
+		t.Error("expected error for unsupported pack type. Instead got none")
 	}
 }
