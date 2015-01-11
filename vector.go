@@ -10,12 +10,31 @@ import (
 	"github.com/FoundationDB/fdb-go/fdb/tuple"
 )
 
+/*
+ * Vector stores each of its values using its index as the key.
+ * The size of a vector is equal to the index of its last key + 1.
+ *
+ * For indexes smaller than the vector's size that have no associated key
+ * in the database, the value will be the specified defaultValue.
+ *
+ * If the last value in the vector has the default value, its key will
+ * always be set so that size can be determined.
+ *
+ * By creating Vector with a Subspace, all kv pairs modified by the
+ * layer will have keys that start within that Subspace.
+ */
+
 type Vector struct {
 	subspace     directory.DirectorySubspace
 	defaultValue string
-	emptyValue   string
 }
 
+/*
+ * Value is the return value from unpacking an element of a Vector.
+ * As type information is serialized along with a value during packing
+ * this information is available when the value is unserialized during unpacking.
+ * It is stored inside a Value type with helper is[type] bool fields.
+ */
 type Value struct {
 	IsFloat  bool
 	IsInt    bool
@@ -34,11 +53,12 @@ func (vect *Vector) Size(tr fdb.Transaction) (int64, error) {
 
 	begin, end := vect.subspace.FDBRangeKeys()
 
-	// .GET is a blocking operation
+	// GET is a blocking operation
 	lastkey, err := tr.GetKey(fdb.LastLessOrEqual(end)).Get()
 	if err != nil {
 		return 0, err
 	}
+	// lastkey < beginKey indicates an empty vector
 	if bytes.Compare(lastkey, begin.FDBKey()) == -1 {
 		return 0, nil
 	}
@@ -61,6 +81,42 @@ func (vect *Vector) Set(index int64, val interface{}, tr fdb.Transaction) error 
 	return nil
 }
 
+// Get the item at the specified index.
+func (vect *Vector) Get(index int64, tr fdb.Transaction) (*Value, error) {
+	if index < 0 {
+		return nil, fmt.Errorf("vector.get: index '%d' out of range", index)
+	}
+
+	// Instead of getting key directly we want to ensure key is within vector
+	// subspace and if it is even if no key exists, provide a sparse default value.
+	// If key is not within vector extents, then we throw an out-of-range error.
+	start := vect.keyAt(index)
+	_, end := vect.subspace.FDBRangeKeys()
+	keyRange := fdb.KeyRange{
+		Begin: start,
+		End:   end,
+	}
+	ropts := fdb.RangeOptions{Limit: 1}
+
+	justOne, err := tr.GetRange(keyRange, ropts).GetSliceWithError()
+	if err != nil {
+		return nil, err
+	}
+	if len(justOne) == 0 {
+		return nil, fmt.Errorf("vector.get: index '%d' out of range", index)
+	}
+	// if this is a direct hit we return the value at the key index.
+	if bytes.Compare(start, justOne[0].Key) == 0 {
+		v, err := vect.valUnpack(justOne[0].Value)
+		if err != nil {
+			return nil, err
+		}
+		return v, nil
+	}
+	// If it is not, we fullfill sparsity and return the default Value.
+	return &Value{}, nil
+}
+
 // Push a single item onto the end of the Vector.
 func (vect *Vector) Push(val interface{}, tr fdb.Transaction) error {
 	size, err := vect.Size(tr)
@@ -79,7 +135,7 @@ func (vect *Vector) Push(val interface{}, tr fdb.Transaction) error {
 }
 
 // Get and pops the last item off the Vector.
-func (vect *Vector) Pop(tr fdb.Transaction) (Value, error) {
+func (vect *Vector) Pop(tr fdb.Transaction) (*Value, error) {
 
 	// Read the last two entries so we can check if the second to last item
 	// is being represented sparsely. If so, we will be required to set it
@@ -90,29 +146,29 @@ func (vect *Vector) Pop(tr fdb.Transaction) (Value, error) {
 	}
 	lastTwo, err := tr.GetRange(vect.subspace, ropts).GetSliceWithError()
 	if err != nil {
-		return Value{}, err
+		return nil, err
 	}
 
 	indices := make([]int64, 2)
 	for i := 0; i < len(lastTwo); i++ {
 		index, err := vect.indexAt(lastTwo[i].Key)
 		if err != nil {
-			return Value{}, err
+			return nil, err
 		}
 		indices[i] = index
 	}
 
 	// Vector was empty // Should this be an error?
 	if len(lastTwo) == 0 {
-		return Value{}, nil
+		return &Value{}, nil
 
 	} else if indices[0] == 0 {
-
+		// pass
 	} else if len(lastTwo) == 1 || indices[0] > indices[1]+1 {
 		// Second to last item is being represented sparsely
 		v, err := vect.valPack(vect.defaultValue) //
 		if err != nil {
-			return Value{}, err
+			return nil, err
 		}
 		tr.Set(vect.keyAt(indices[0]-1), v)
 	}
@@ -121,37 +177,37 @@ func (vect *Vector) Pop(tr fdb.Transaction) (Value, error) {
 
 	val, err := vect.valUnpack(lastTwo[0].Value)
 	if err != nil {
-		return val, err
+		return nil, err
 	}
 
 	return val, nil
 }
 
 // Get the value of the last item in the Vector.
-func (vect *Vector) Back(tr fdb.Transaction) (Value, error) {
+func (vect *Vector) Back(tr fdb.Transaction) (*Value, error) {
 	ropts := fdb.RangeOptions{
 		Limit:   1,
 		Reverse: true,
 	}
 	last, err := tr.GetRange(vect.subspace, ropts).GetSliceWithError()
 	if err != nil {
-		return Value{}, err
+		return nil, err
 	}
 	if len(last) == 0 {
 		// should this be an error?
-		return Value{}, nil
+		return &Value{}, nil
 	}
 
 	val, err := vect.valUnpack(last[0].Value)
 	if err != nil {
-		return Value{}, err
+		return nil, err
 	}
 
 	return val, nil
 }
 
 // Get the value of the first item in the Vector.
-// func (vect *Vector) front(tr fdb.Transaction) string {
+// func (vect *Vector) Front(tr fdb.Transaction) (Value, error) {
 // }
 
 // Remove all items from the Vector.
@@ -209,9 +265,9 @@ func (vect *Vector) valPack(val interface{}) ([]byte, error) {
 }
 
 // Unpack values into a Value structure
-func (vect *Vector) valUnpack(b []byte) (Value, error) {
+func (vect *Vector) valUnpack(b []byte) (*Value, error) {
 
-	v := Value{}
+	v := &Value{}
 
 	if len(b) == 0 {
 		return v, fmt.Errorf("No Byte array to Decode")

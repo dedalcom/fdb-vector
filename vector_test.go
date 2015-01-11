@@ -14,6 +14,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func isEmpty(v *Value) bool {
+	return !v.IsFloat && !v.IsInt && !v.IsString
+}
+
 func TestClear(t *testing.T) {
 
 	db := fdb.MustOpenDefault()
@@ -103,6 +107,57 @@ func TestSize(t *testing.T) {
 
 }
 
+func TestGetSet(t *testing.T) {
+
+	db := fdb.MustOpenDefault()
+
+	subspace, err := directory.CreateOrOpen(db, []string{"tests", "vector"}, []byte{0})
+	if err != nil {
+		panic(err)
+	}
+
+	_, e := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+
+		vector := Vector{subspace: subspace}
+		vector.Clear(tr)
+
+		err := vector.Set(3, "a", tr)
+		if err != nil {
+			return nil, fmt.Errorf("Set returned error: %s", err)
+		}
+
+		val, err := vector.Get(3, tr)
+		if err != nil {
+			return nil, fmt.Errorf("Get returned an error %s", err)
+		}
+		if val.String != "a" {
+			return nil, fmt.Errorf("Val should be 'a' instead got: %s", val.String)
+		}
+
+		val, err = vector.Get(1, tr)
+		if err != nil {
+			return nil, fmt.Errorf("Get returned error: %s", err)
+		}
+		if !isEmpty(val) {
+			return nil, fmt.Errorf("Expected empty val instead got: %s", val)
+		}
+
+		val, err = vector.Get(4, tr)
+		if err == nil {
+			return nil, fmt.Errorf("Expected out of range error")
+		}
+		if val != nil {
+			return nil, fmt.Errorf("Val should be nil instead got: %s", val)
+		}
+
+		return nil, nil
+	})
+
+	if e != nil {
+		t.Error(e)
+	}
+}
+
 func TestPushPop(t *testing.T) {
 
 	db := fdb.MustOpenDefault()
@@ -158,7 +213,6 @@ func TestPushPop(t *testing.T) {
 	if e != nil {
 		t.Error(e)
 	}
-
 }
 
 func TestSparsity(t *testing.T) {
